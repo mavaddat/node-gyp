@@ -13,6 +13,10 @@ CHECKOUT_PATH = os.path.dirname(os.path.realpath(__file__))
 CHECKOUT_GYP_PATH = os.path.join(CHECKOUT_PATH, "gyp")
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--no-commit",
+    action="store_true",
+    dest="no_commit",
+    help="do not run git-commit")
 parser.add_argument("tag", help="gyp tag to update to")
 args = parser.parse_args()
 
@@ -33,7 +37,25 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 
         print("Unzipping...")
         with tarfile.open(tar_file, "r:gz") as tar_ref:
-            tar_ref.extractall(unzip_target)
+            def is_within_directory(directory, target):
+
+                abs_directory = os.path.abspath(directory)
+                abs_target = os.path.abspath(target)
+
+                prefix = os.path.commonprefix([abs_directory, abs_target])
+
+                return prefix == abs_directory
+
+            def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+
+                for member in tar.getmembers():
+                    member_path = os.path.join(path, member.name)
+                    if not is_within_directory(path, member_path):
+                        raise Exception("Attempted Path Traversal in Tar File")
+
+                tar.extractall(path, members, numeric_owner=numeric_owner)
+
+            safe_extract(tar_ref, unzip_target)
 
         print("Moving to current checkout (" + CHECKOUT_PATH + ")...")
         if os.path.exists(CHECKOUT_GYP_PATH):
@@ -42,5 +64,8 @@ with tempfile.TemporaryDirectory() as tmp_dir:
             os.path.join(unzip_target, os.listdir(unzip_target)[0]), CHECKOUT_GYP_PATH
         )
 
-subprocess.check_output(["git", "add", "gyp"], cwd=CHECKOUT_PATH)
-subprocess.check_output(["git", "commit", "-m", "feat(gyp): update gyp to " + args.tag])
+if not args.no_commit:
+  subprocess.check_output(["git", "add", "gyp"], cwd=CHECKOUT_PATH)
+  subprocess.check_output([
+    "git", "commit", "-m", f"feat(gyp): update gyp to {args.tag}"
+  ])
